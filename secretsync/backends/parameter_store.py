@@ -3,12 +3,12 @@
 from __future__ import annotations
 
 import logging
-from typing import Optional
 
 import boto3
+from botocore.config import Config as BotoConfig
 from botocore.exceptions import ClientError
 
-from .base import Backend
+from .base import Backend, sanitize_keys
 
 logger = logging.getLogger(__name__)
 
@@ -29,7 +29,12 @@ class ParameterStoreBackend(Backend):
             path = path + "/"
         self.path = path
         self.region = region
-        self._client = boto3.client("ssm", region_name=region)
+        self._client = boto3.client(
+            "ssm",
+            region_name=region,
+            verify=True,
+            config=BotoConfig(retries={"max_attempts": 3, "mode": "adaptive"}),
+        )
 
     # ------------------------------------------------------------------
     # Backend interface
@@ -49,7 +54,7 @@ class ParameterStoreBackend(Backend):
                 name: str = param["Name"]
                 key = name[len(self.path):]  # strip prefix
                 result[key] = param["Value"]
-        return result
+        return sanitize_keys(result)
 
     def write(self, updates: dict[str, str]) -> None:
         """Put each key as a SecureString parameter."""
@@ -83,7 +88,7 @@ class ParameterStoreBackend(Backend):
     # Optional: describe a single parameter (useful for audit)
     # ------------------------------------------------------------------
 
-    def describe(self, key: str) -> Optional[dict]:
+    def describe(self, key: str) -> dict | None:
         """Return metadata for a single parameter, or None if not found."""
         full_name = f"{self.path}{key}"
         try:

@@ -13,7 +13,6 @@ from secretsync.differ import (
 )
 from secretsync.models import DiffStatus, SyncDirection
 
-
 # ---------------------------------------------------------------------------
 # compute_diff
 # ---------------------------------------------------------------------------
@@ -81,6 +80,7 @@ def test_diff_empty_remote():
 @pytest.mark.parametrize("key", [
     "DB_PASSWORD", "API_KEY", "SECRET_TOKEN", "PRIVATE_KEY",
     "AWS_SECRET_ACCESS_KEY", "AUTH_TOKEN", "CERT_PEM",
+    "DATABASE_URL", "CONNECTION_STRING", "REDIS_DSN",
 ])
 def test_is_sensitive_positive(key):
     assert is_sensitive(key)
@@ -88,6 +88,7 @@ def test_is_sensitive_positive(key):
 
 @pytest.mark.parametrize("key", [
     "DB_HOST", "APP_PORT", "LOG_LEVEL", "FEATURE_FLAG",
+    "CACHE_KEY_PREFIX", "KEYBOARD_LAYOUT",
 ])
 def test_is_sensitive_negative(key):
     assert not is_sensitive(key)

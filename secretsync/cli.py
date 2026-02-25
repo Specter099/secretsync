@@ -11,7 +11,7 @@ from rich.prompt import Confirm
 
 from .backends import get_backend
 from .config import load_config, validate_config
-from .differ import build_sync_plan, apply_plan_to_local, apply_plan_to_remote, is_sensitive
+from .differ import apply_plan_to_local, apply_plan_to_remote, build_sync_plan
 from .env_file import parse_env_file, write_env_file
 from .formatters import render_plan
 from .models import SyncDirection
@@ -62,21 +62,39 @@ _prune_option = click.option(
     "--prune",
     is_flag=True,
     default=False,
-    help="Delete remote keys that no longer exist locally (push) or local keys absent from remote (pull).",
+    help="Delete remote keys absent locally (push) or local keys absent from remote (pull).",
 )
 _no_mask_option = click.option(
-    "--no-mask",
-    "mask",
-    is_flag=True,
+    "--mask/--no-mask",
     default=True,
-    flag_value=False,
-    help="Show actual secret values instead of masking them.",
+    show_default=True,
+    help="Mask sensitive values in output (use --no-mask to show plaintext).",
 )
 
 
 def _abort(msg: str, exit_code: int = 1) -> None:
     console.print(f"[bold red]Error:[/] {msg}")
     sys.exit(exit_code)
+
+
+def _warn_no_mask(mask: bool) -> None:
+    """Print a warning when --no-mask is active."""
+    if not mask:
+        console.print(
+            "[bold yellow]Warning:[/] --no-mask is active. "
+            "Secret values will be displayed in plaintext."
+        )
+
+
+def _check_env_file_path(env_file: str) -> None:
+    """Warn if the env file path contains traversal components."""
+    parts = Path(env_file).parts
+    if ".." in parts:
+        resolved = Path(env_file).resolve()
+        console.print(
+            f"[bold yellow]Warning:[/] --env-file target '{env_file}' "
+            f"contains path traversal (resolves to {resolved})."
+        )
 
 
 def _load_and_validate(config_path: str, **kwargs):
@@ -112,6 +130,8 @@ def cli():
 @_no_mask_option
 def diff(env_file, config, output_format, mask):
     """Show differences between the local .env and the remote backend."""
+    _warn_no_mask(mask)
+    _check_env_file_path(env_file)
     cfg = _load_and_validate(
         config,
         env_file=env_file,
@@ -163,6 +183,8 @@ def status(env_file, config, output_format, mask):
 @_no_mask_option
 def push(env_file, config, dry_run, force, prune, output_format, mask):
     """Push local .env changes to the remote backend."""
+    _warn_no_mask(mask)
+    _check_env_file_path(env_file)
     cfg = _load_and_validate(
         config,
         env_file=env_file,
@@ -235,6 +257,8 @@ def push(env_file, config, dry_run, force, prune, output_format, mask):
 @_no_mask_option
 def pull(env_file, config, dry_run, force, prune, output_format, mask):
     """Pull remote secrets into the local .env file."""
+    _warn_no_mask(mask)
+    _check_env_file_path(env_file)
     cfg = _load_and_validate(
         config,
         env_file=env_file,

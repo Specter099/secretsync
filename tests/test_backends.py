@@ -8,9 +8,9 @@ import boto3
 import pytest
 from moto import mock_aws
 
-from secretsync.backends.secrets_manager import SecretsManagerBackend
+from secretsync.backends.base import sanitize_keys
 from secretsync.backends.parameter_store import ParameterStoreBackend
-
+from secretsync.backends.secrets_manager import SecretsManagerBackend
 
 REGION = "us-east-1"
 
@@ -155,3 +155,27 @@ class TestParameterStoreBackend:
         result = ps_backend.read()
         assert "MY_KEY" in result
         assert "/myapp/test/MY_KEY" not in result
+
+
+# ---------------------------------------------------------------------------
+# Key sanitization
+# ---------------------------------------------------------------------------
+
+
+class TestSanitizeKeys:
+    def test_valid_keys_pass_through(self):
+        data = {"DB_HOST": "localhost", "API_KEY": "abc", "_PRIVATE": "x"}
+        assert sanitize_keys(data) == data
+
+    def test_invalid_keys_are_dropped(self):
+        data = {"VALID": "ok", "invalid-key": "bad", "123START": "bad", "has space": "bad"}
+        result = sanitize_keys(data)
+        assert result == {"VALID": "ok"}
+
+    def test_empty_key_dropped(self):
+        data = {"": "value", "OK": "fine"}
+        assert sanitize_keys(data) == {"OK": "fine"}
+
+    def test_newline_in_key_dropped(self):
+        data = {"LEGIT\nINJECTED": "payload", "SAFE": "ok"}
+        assert sanitize_keys(data) == {"SAFE": "ok"}
