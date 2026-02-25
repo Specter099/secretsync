@@ -3,15 +3,13 @@
 from __future__ import annotations
 
 import json
-from pathlib import Path
 
+import boto3
 import pytest
 from click.testing import CliRunner
 from moto import mock_aws
-import boto3
 
 from secretsync.cli import cli
-
 
 REGION = "us-east-1"
 
@@ -105,7 +103,6 @@ class TestPushCommand:
             assert result.exit_code == 0
             # Verify nothing was actually written
             client = boto3.client("secretsmanager", region_name=REGION)
-            import botocore.exceptions
             with pytest.raises(client.exceptions.ResourceNotFoundException):
                 client.get_secret_value(SecretId="cli-test/app")
 

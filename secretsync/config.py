@@ -3,16 +3,9 @@
 from __future__ import annotations
 
 import os
-import sys
+import tomllib
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Optional
-
-if sys.version_info >= (3, 11):
-    import tomllib
-else:
-    import tomli as tomllib  # type: ignore[no-redef]
-
 
 DEFAULT_CONFIG_FILE = ".secretsync.toml"
 DEFAULT_BACKEND = "secrets_manager"
@@ -48,7 +41,7 @@ class Config:
 
 
 def load_config(
-    config_path: Optional[str | Path] = None,
+    config_path: str | Path | None = None,
     *,
     env_file: str = ".env",
     dry_run: bool = False,
@@ -76,6 +69,12 @@ def load_config(
     # --- Load from TOML file ---
     path = Path(config_path or DEFAULT_CONFIG_FILE)
     if path.exists():
+        _MAX_CONFIG_SIZE = 1_000_000  # 1 MB sanity limit
+        if path.stat().st_size > _MAX_CONFIG_SIZE:
+            raise ValueError(
+                f"Config file '{path}' is {path.stat().st_size} bytes — "
+                f"exceeds the {_MAX_CONFIG_SIZE} byte safety limit."
+            )
         raw = tomllib.loads(path.read_text(encoding="utf-8"))
         backend_section = raw.get("backend", {})
         cfg.backend_type = backend_section.get("type", DEFAULT_BACKEND)

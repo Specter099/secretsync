@@ -33,6 +33,7 @@ jobs:
         run: ruff check secretsync tests
 
       - name: Run tests
+        # Dummy credentials for moto mock — never use real credentials here
         env:
           AWS_DEFAULT_REGION: us-east-1
           AWS_ACCESS_KEY_ID: testing

@@ -2,12 +2,10 @@
 
 from __future__ import annotations
 
-from pathlib import Path
-
-import pytest
+import os
+import stat
 
 from secretsync.env_file import parse_env_file, write_env_file
-
 
 # ---------------------------------------------------------------------------
 # Parsing
@@ -177,3 +175,25 @@ def test_write_round_trip(tmp_path):
     f = tmp_path / ".env"
     write_env_file(f, original)
     assert parse_env_file(f) == original
+
+
+# ---------------------------------------------------------------------------
+# Security: file permissions and atomic writes
+# ---------------------------------------------------------------------------
+
+
+def test_write_sets_owner_only_permissions(tmp_path):
+    f = tmp_path / ".env"
+    write_env_file(f, {"SECRET": "value"})
+    mode = os.stat(f).st_mode
+    assert mode & stat.S_IRUSR  # owner can read
+    assert mode & stat.S_IWUSR  # owner can write
+    assert not (mode & stat.S_IRGRP)  # group cannot read
+    assert not (mode & stat.S_IROTH)  # others cannot read
+
+
+def test_write_no_temp_file_left_on_success(tmp_path):
+    f = tmp_path / ".env"
+    write_env_file(f, {"A": "1"})
+    leftover = list(tmp_path.glob(".env.tmp.*"))
+    assert leftover == []

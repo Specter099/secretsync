@@ -4,21 +4,26 @@ from __future__ import annotations
 
 from .models import DiffEntry, DiffStatus, SyncDirection, SyncPlan
 
-
-# Keys that should always be masked in output (case-insensitive substring match)
+# Keys that should always be masked in output (case-insensitive substring match).
+# Ordered from most specific to least specific to avoid false positives.
 _SENSITIVE_FRAGMENTS = (
-    "pass",
     "password",
     "passwd",
+    "pass",
     "secret",
     "token",
-    "key",
     "api_key",
     "apikey",
+    "private_key",
+    "secret_key",
+    "access_key",
     "auth",
     "credential",
     "private",
     "cert",
+    "connection_string",
+    "database_url",
+    "dsn",
 )
 
 

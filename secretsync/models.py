@@ -3,11 +3,10 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from enum import Enum
-from typing import Optional
+from enum import StrEnum
 
 
-class DiffStatus(str, Enum):
+class DiffStatus(StrEnum):
     """Describes how a key differs between local and remote."""
 
     ADDED = "added"        # exists locally, not in remote
@@ -16,7 +15,7 @@ class DiffStatus(str, Enum):
     UNCHANGED = "unchanged"  # exists in both, values identical
 
 
-class SyncDirection(str, Enum):
+class SyncDirection(StrEnum):
     PUSH = "push"   # local → remote
     PULL = "pull"   # remote → local
 
@@ -44,8 +43,8 @@ class DiffEntry:
 
     key: str
     status: DiffStatus
-    local_value: Optional[str] = None
-    remote_value: Optional[str] = None
+    local_value: str | None = None
+    remote_value: str | None = None
 
     @property
     def is_change(self) -> bool:

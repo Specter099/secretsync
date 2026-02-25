@@ -2,9 +2,11 @@
 
 from __future__ import annotations
 
+import os
 import re
+import stat
+import tempfile
 from pathlib import Path
-from typing import Optional
 
 from .models import EnvVar
 
@@ -85,7 +87,7 @@ class _Line:
 
     __slots__ = ("raw", "key")
 
-    def __init__(self, raw: str, key: Optional[str] = None) -> None:
+    def __init__(self, raw: str, key: str | None = None) -> None:
         self.raw = raw
         self.key = key  # None for comments / blank lines
 
@@ -112,7 +114,10 @@ def _quote_if_needed(value: str) -> str:
     """Wrap value in double-quotes if it contains spaces, #, or special chars."""
     needs_quote = any(c in value for c in (' ', '\t', '"', "'", '#', '$', '\\', '\n', '\r'))
     if needs_quote:
-        escaped = value.replace('\\', '\\\\').replace('"', '\\"').replace('\n', '\\n').replace('\r', '\\r')
+        escaped = (
+            value.replace('\\', '\\\\').replace('"', '\\"')
+            .replace('\n', '\\n').replace('\r', '\\r')
+        )
         return f'"{escaped}"'
     return value
 
@@ -161,4 +166,25 @@ def write_env_file(
         if key not in written:
             new_lines.append(f"{key}={_quote_if_needed(value)}")
 
-    file_path.write_text("\n".join(new_lines) + "\n", encoding="utf-8")
+    content = "\n".join(new_lines) + "\n"
+
+    # Atomic write: write to a temp file in the same directory, then rename.
+    # This prevents partial writes from corrupting the .env file.
+    fd, tmp_path = tempfile.mkstemp(
+        dir=file_path.parent,
+        prefix=".env.tmp.",
+        suffix="",
+    )
+    closed = False
+    try:
+        os.write(fd, content.encode("utf-8"))
+        os.fchmod(fd, stat.S_IRUSR | stat.S_IWUSR)  # 0600 — owner only
+        os.close(fd)
+        closed = True
+        os.replace(tmp_path, file_path)
+    except BaseException:
+        if not closed:
+            os.close(fd)
+        if os.path.exists(tmp_path):
+            os.unlink(tmp_path)
+        raise

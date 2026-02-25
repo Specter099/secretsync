@@ -6,9 +6,10 @@ import json
 import logging
 
 import boto3
+from botocore.config import Config as BotoConfig
 from botocore.exceptions import ClientError
 
-from .base import Backend
+from .base import Backend, sanitize_keys
 
 logger = logging.getLogger(__name__)
 
@@ -26,7 +27,12 @@ class SecretsManagerBackend(Backend):
     def __init__(self, secret_name: str, region: str = "us-east-1") -> None:
         self.secret_name = secret_name
         self.region = region
-        self._client = boto3.client("secretsmanager", region_name=region)
+        self._client = boto3.client(
+            "secretsmanager",
+            region_name=region,
+            verify=True,
+            config=BotoConfig(retries={"max_attempts": 3, "mode": "adaptive"}),
+        )
 
     # ------------------------------------------------------------------
     # Backend interface
@@ -58,7 +64,7 @@ class SecretsManagerBackend(Backend):
                 f"got {type(data).__name__}."
             )
 
-        return {k: str(v) for k, v in data.items()}
+        return sanitize_keys({k: str(v) for k, v in data.items()})
 
     def write(self, updates: dict[str, str]) -> None:
         """Merge *updates* into the existing secret (creates if absent)."""
