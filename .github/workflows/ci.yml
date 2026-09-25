@@ -41,11 +41,3 @@ jobs:
           AWS_SECURITY_TOKEN: testing
           AWS_SESSION_TOKEN: testing
         run: pytest
-
-      - name: Upload coverage report
-        if: matrix.python-version == '3.12'
-        uses: actions/upload-artifact@v7
-        with:
-          name: coverage-report
-          path: htmlcov/
-          retention-days: 7

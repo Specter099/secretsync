@@ -21,23 +21,6 @@ class SyncDirection(StrEnum):
 
 
 @dataclass
-class EnvVar:
-    """A single key/value pair from a .env file or remote backend."""
-
-    key: str
-    value: str
-
-    def masked_value(self, mask_char: str = "*", visible_chars: int = 0) -> str:
-        """Return value with all but the first *visible_chars* characters masked."""
-        if not self.value:
-            return self.value
-        if visible_chars <= 0:
-            return mask_char * min(len(self.value), 8)
-        prefix = self.value[:visible_chars]
-        return prefix + mask_char * max(0, len(self.value) - visible_chars)
-
-
-@dataclass
 class DiffEntry:
     """A single row in a computed diff between local and remote env vars."""
 
@@ -50,20 +33,6 @@ class DiffEntry:
     def is_change(self) -> bool:
         return self.status != DiffStatus.UNCHANGED
 
-    def display_values(
-        self, mask_sensitive: bool = True
-    ) -> tuple[str, str]:
-        """Return (local_display, remote_display) with optional masking."""
-        local = self.local_value or ""
-        remote = self.remote_value or ""
-
-        if mask_sensitive:
-            mask = lambda v: ("*" * min(len(v), 8)) if v else ""  # noqa: E731
-            local = mask(local)
-            remote = mask(remote)
-
-        return local, remote
-
 
 @dataclass
 class SyncPlan:
@@ -71,7 +40,6 @@ class SyncPlan:
 
     direction: SyncDirection
     entries: list[DiffEntry] = field(default_factory=list)
-    env_file: str = ".env"
     backend_type: str = "secrets_manager"
     dry_run: bool = False
     prune: bool = False

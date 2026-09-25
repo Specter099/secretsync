@@ -66,6 +66,20 @@ class TestDiffCommand:
             assert "summary" in data
             assert data["direction"] == "push"
 
+    def test_diff_json_output_is_verbatim(self, runner, tmp_path, toml_sm):
+        """Long values and Rich-markup-like text must not be wrapped or stripped."""
+        long_url = "https://example.com/" + "a" * 200
+        env = tmp_path / ".env"
+        env.write_text(f"URL={long_url}\nLABEL=[bold]x[/bold]\n")
+        with mock_aws():
+            result = runner.invoke(
+                cli,
+                ["diff", "--env-file", str(env), "--config", str(toml_sm), "--format", "json"],
+            )
+            assert result.exit_code == 0
+            local = {e["key"]: e["local"] for e in json.loads(result.stdout)["entries"]}
+            assert local == {"URL": long_url, "LABEL": "[bold]x[/bold]"}
+
     def test_diff_in_sync_message(self, runner, tmp_path, toml_sm, env_file):
         with mock_aws():
             # Push first to get in sync

@@ -33,6 +33,13 @@ def is_sensitive(key: str) -> bool:
     return any(frag in lower for frag in _SENSITIVE_FRAGMENTS)
 
 
+def mask_value(key: str, value: str | None, mask: bool) -> str | None:
+    """Return *value* masked with ``*`` if *mask* is on and *key* looks sensitive."""
+    if value is not None and mask and is_sensitive(key):
+        return "*" * min(len(value), 8)
+    return value
+
+
 def compute_diff(
     local: dict[str, str],
     remote: dict[str, str],
@@ -97,7 +104,6 @@ def build_sync_plan(
     remote: dict[str, str],
     direction: SyncDirection,
     *,
-    env_file: str = ".env",
     backend_type: str = "secrets_manager",
     dry_run: bool = False,
     prune: bool = False,
@@ -107,7 +113,6 @@ def build_sync_plan(
     return SyncPlan(
         direction=direction,
         entries=entries,
-        env_file=env_file,
         backend_type=backend_type,
         dry_run=dry_run,
         prune=prune,
@@ -164,11 +169,5 @@ def apply_plan_to_remote(plan: SyncPlan) -> dict[str, str]:
         else:
             # UNCHANGED — keep remote value
             result[entry.key] = entry.remote_value or ""
-
-    # Remove pruned keys from result
-    if plan.prune:
-        for entry in plan.entries:
-            if entry.status == DiffStatus.REMOVED:
-                result.pop(entry.key, None)
 
     return result

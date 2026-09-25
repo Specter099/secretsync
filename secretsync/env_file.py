@@ -8,8 +8,6 @@ import stat
 import tempfile
 from pathlib import Path
 
-from .models import EnvVar
-
 # Matches:  KEY=value  or  KEY="value"  or  KEY='value'
 # Handles optional `export` prefix, inline comments stripped.
 _PAIR_RE = re.compile(
@@ -70,11 +68,6 @@ def parse_env_file(path: str | Path) -> dict[str, str]:
             pairs[key] = _unescape(_strip_inline_comment(raw_value))
 
     return pairs
-
-
-def parse_env_file_as_vars(path: str | Path) -> list[EnvVar]:
-    """Return parsed .env file as an ordered list of :class:`EnvVar`."""
-    return [EnvVar(key=k, value=v) for k, v in parse_env_file(path).items()]
 
 
 # ---------------------------------------------------------------------------

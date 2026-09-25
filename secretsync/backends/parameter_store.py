@@ -83,19 +83,3 @@ class ParameterStoreBackend(Backend):
             except ClientError:
                 logger.error("Failed to delete parameters: %s", batch)
                 raise
-
-    # ------------------------------------------------------------------
-    # Optional: describe a single parameter (useful for audit)
-    # ------------------------------------------------------------------
-
-    def describe(self, key: str) -> dict | None:
-        """Return metadata for a single parameter, or None if not found."""
-        full_name = f"{self.path}{key}"
-        try:
-            resp = self._client.describe_parameters(
-                ParameterFilters=[{"Key": "Name", "Values": [full_name]}]
-            )
-            params = resp.get("Parameters", [])
-            return params[0] if params else None
-        except ClientError:
-            return None

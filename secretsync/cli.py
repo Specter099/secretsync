@@ -17,7 +17,6 @@ from .formatters import render_plan
 from .models import SyncDirection
 
 console = Console(stderr=True)
-out = Console()
 
 
 # ---------------------------------------------------------------------------
@@ -97,8 +96,8 @@ def _check_env_file_path(env_file: str) -> None:
         )
 
 
-def _load_and_validate(config_path: str, **kwargs):
-    cfg = load_config(config_path, **kwargs)
+def _load_and_validate(config_path: str):
+    cfg = load_config(config_path)
     errors = validate_config(cfg)
     if errors:
         for err in errors:
@@ -132,12 +131,7 @@ def diff(env_file, config, output_format, mask):
     """Show differences between the local .env and the remote backend."""
     _warn_no_mask(mask)
     _check_env_file_path(env_file)
-    cfg = _load_and_validate(
-        config,
-        env_file=env_file,
-        output_format=output_format,
-        mask=mask,
-    )
+    cfg = _load_and_validate(config)
     backend = get_backend(cfg)
 
     local = parse_env_file(env_file)
@@ -146,12 +140,11 @@ def diff(env_file, config, output_format, mask):
     plan = build_sync_plan(
         local, remote,
         direction=SyncDirection.PUSH,
-        env_file=env_file,
         backend_type=cfg.backend_type,
     )
 
     rendered = render_plan(plan, fmt=output_format, mask=mask)
-    out.print(rendered, end="")
+    click.echo(rendered, nl=False)
 
     if not plan.has_changes:
         console.print("[bold green]No differences found.[/]")
@@ -185,15 +178,7 @@ def push(env_file, config, dry_run, force, prune, output_format, mask):
     """Push local .env changes to the remote backend."""
     _warn_no_mask(mask)
     _check_env_file_path(env_file)
-    cfg = _load_and_validate(
-        config,
-        env_file=env_file,
-        dry_run=dry_run,
-        force=force,
-        prune=prune,
-        output_format=output_format,
-        mask=mask,
-    )
+    cfg = _load_and_validate(config)
     backend = get_backend(cfg)
 
     if not Path(env_file).exists():
@@ -205,14 +190,13 @@ def push(env_file, config, dry_run, force, prune, output_format, mask):
     plan = build_sync_plan(
         local, remote,
         direction=SyncDirection.PUSH,
-        env_file=env_file,
         backend_type=cfg.backend_type,
         dry_run=dry_run,
         prune=prune,
     )
 
     rendered = render_plan(plan, fmt=output_format, mask=mask)
-    out.print(rendered, end="")
+    click.echo(rendered, nl=False)
 
     if not plan.has_changes:
         console.print("[bold green]Nothing to push — already in sync.[/]")
@@ -259,15 +243,7 @@ def pull(env_file, config, dry_run, force, prune, output_format, mask):
     """Pull remote secrets into the local .env file."""
     _warn_no_mask(mask)
     _check_env_file_path(env_file)
-    cfg = _load_and_validate(
-        config,
-        env_file=env_file,
-        dry_run=dry_run,
-        force=force,
-        prune=prune,
-        output_format=output_format,
-        mask=mask,
-    )
+    cfg = _load_and_validate(config)
     backend = get_backend(cfg)
 
     local = parse_env_file(env_file)
@@ -279,14 +255,13 @@ def pull(env_file, config, dry_run, force, prune, output_format, mask):
     plan = build_sync_plan(
         local, remote,
         direction=SyncDirection.PULL,
-        env_file=env_file,
         backend_type=cfg.backend_type,
         dry_run=dry_run,
         prune=prune,
     )
 
     rendered = render_plan(plan, fmt=output_format, mask=mask)
-    out.print(rendered, end="")
+    click.echo(rendered, nl=False)
 
     if not plan.has_changes:
         console.print("[bold green]Nothing to pull — already in sync.[/]")
