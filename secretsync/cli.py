@@ -6,12 +6,14 @@ import sys
 from pathlib import Path
 
 import click
+from botocore.exceptions import BotoCoreError, ClientError
 from rich.console import Console
+from rich.markup import escape
 from rich.prompt import Confirm
 
 from .backends import get_backend
 from .config import load_config, validate_config
-from .differ import apply_plan_to_local, apply_plan_to_remote, build_sync_plan
+from .differ import apply_plan_to_local, build_sync_plan, remote_changes
 from .env_file import parse_env_file, write_env_file
 from .formatters import render_plan
 from .models import SyncDirection
@@ -32,9 +34,8 @@ _env_file_option = click.option(
 )
 _config_option = click.option(
     "--config",
-    default=".secretsync.toml",
-    show_default=True,
-    help="Path to .secretsync.toml config file.",
+    default=None,
+    help="Path to config file. [default: .secretsync.toml if present]",
     metavar="FILE",
 )
 _format_option = click.option(
@@ -67,12 +68,12 @@ _no_mask_option = click.option(
     "--mask/--no-mask",
     default=True,
     show_default=True,
-    help="Mask sensitive values in output (use --no-mask to show plaintext).",
+    help="Mask all values in output (use --no-mask to show plaintext).",
 )
 
 
 def _abort(msg: str, exit_code: int = 1) -> None:
-    console.print(f"[bold red]Error:[/] {msg}")
+    console.print(f"[bold red]Error:[/] {escape(msg)}")
     sys.exit(exit_code)
 
 
@@ -91,8 +92,8 @@ def _check_env_file_path(env_file: str) -> None:
     if ".." in parts:
         resolved = Path(env_file).resolve()
         console.print(
-            f"[bold yellow]Warning:[/] --env-file target '{env_file}' "
-            f"contains path traversal (resolves to {resolved})."
+            f"[bold yellow]Warning:[/] --env-file target '{escape(env_file)}' "
+            f"contains path traversal (resolves to {escape(str(resolved))})."
         )
 
 
@@ -101,7 +102,7 @@ def _load_and_validate(config_path: str):
     errors = validate_config(cfg)
     if errors:
         for err in errors:
-            console.print(f"[bold red]Config error:[/] {err}")
+            console.print(f"[bold red]Config error:[/] {escape(err)}")
         sys.exit(1)
     return cfg
 
@@ -111,7 +112,17 @@ def _load_and_validate(config_path: str):
 # ---------------------------------------------------------------------------
 
 
-@click.group()
+class _CliGroup(click.Group):
+    """Turn expected runtime failures into a one-line error instead of a traceback."""
+
+    def invoke(self, ctx):
+        try:
+            return super().invoke(ctx)
+        except (BotoCoreError, ClientError, OSError, ValueError) as exc:
+            _abort(str(exc))
+
+
+@click.group(cls=_CliGroup)
 @click.version_option(package_name="secretsync")
 def cli():
     """secretsync — bidirectional .env ↔ AWS secrets sync."""
@@ -138,7 +149,8 @@ def diff(env_file, config, output_format, mask):
     remote = backend.read()
 
     plan = build_sync_plan(
-        local, remote,
+        local,
+        remote,
         direction=SyncDirection.PUSH,
         backend_type=cfg.backend_type,
     )
@@ -188,7 +200,8 @@ def push(env_file, config, dry_run, force, prune, output_format, mask):
     remote = backend.read()
 
     plan = build_sync_plan(
-        local, remote,
+        local,
+        remote,
         direction=SyncDirection.PUSH,
         backend_type=cfg.backend_type,
         dry_run=dry_run,
@@ -204,6 +217,12 @@ def push(env_file, config, dry_run, force, prune, output_format, mask):
 
     if dry_run:
         return
+
+    if prune and not local:
+        _abort(
+            f"Refusing to --prune from an empty env file ({env_file!r}): "
+            "this would delete every remote key."
+        )
 
     # Warn about deletions
     if plan.has_deletions and not prune:
@@ -221,8 +240,8 @@ def push(env_file, config, dry_run, force, prune, output_format, mask):
             console.print("Aborted.")
             return
 
-    target = apply_plan_to_remote(plan)
-    backend.write_all(target, prune=prune)
+    updates, deletes = remote_changes(plan)
+    backend.apply(updates, deletes)
     console.print("[bold green]Push complete.[/]")
 
 
@@ -253,7 +272,8 @@ def pull(env_file, config, dry_run, force, prune, output_format, mask):
         console.print("[yellow]Warning:[/] Remote backend returned no secrets.")
 
     plan = build_sync_plan(
-        local, remote,
+        local,
+        remote,
         direction=SyncDirection.PULL,
         backend_type=cfg.backend_type,
         dry_run=dry_run,
@@ -270,15 +290,23 @@ def pull(env_file, config, dry_run, force, prune, output_format, mask):
     if dry_run:
         return
 
+    if prune and not remote:
+        _abort(
+            "Refusing to --prune from an empty remote: this would delete every "
+            "local key. Check the configured secret name / path."
+        )
+
     # Confirmation prompt (skipped with --force)
     if not force:
         change_count = len(plan.changes)
         if not Confirm.ask(
-            f"Apply {change_count} change(s) to {env_file!r}?", default=False, console=console
+            f"Apply {change_count} change(s) to {escape(repr(env_file))}?",
+            default=False,
+            console=console,
         ):
             console.print("Aborted.")
             return
 
     target = apply_plan_to_local(plan)
     write_env_file(env_file, target, prune=prune)
-    console.print(f"[bold green]Pull complete → {env_file}[/]")
+    console.print(f"[bold green]Pull complete → {escape(env_file)}[/]")

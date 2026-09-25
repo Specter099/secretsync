@@ -40,12 +40,14 @@ secretsync status --env-file .env --config .secretsync.toml
 ```
 secretsync/
 ├── cli.py              # Click CLI entry point (push, pull, diff, status)
+├── config.py           # .secretsync.toml + env var loading and validation
 ├── backends/
 │   ├── base.py         # Backend ABC + key sanitization
 │   ├── secrets_manager.py  # AWS Secrets Manager backend
 │   └── parameter_store.py  # AWS SSM Parameter Store backend
-├── differ.py           # Diff computation, sync plans, sensitivity detection
+├── differ.py           # Diff computation, sync plans, value masking
 ├── env_file.py         # .env file parsing and atomic writing
+├── formatters/         # Table (Rich) and JSON renderers for a SyncPlan
 └── models.py           # Data models (DiffStatus, SyncDirection, SyncPlan)
 tests/
 ├── test_backends.py    # Backend read/write/delete with moto mocks
@@ -57,9 +59,10 @@ tests/
 ## Architecture
 
 - **Configuration**: `.secretsync.toml` specifies backend type (`secrets_manager` or `parameter_store`), region, and backend-specific settings (`secret_name` or `path`)
-- **Backends**: Abstract base with `read()`, `write()`, `delete()`, `write_all(prune)` interface. Secrets Manager stores all keys as a single JSON object; Parameter Store stores each key as an individual parameter under a path prefix
-- **Diff engine**: `compute_diff()` produces `DiffEntry` list, `build_sync_plan()` wraps with direction and prune semantics, `apply_plan_to_remote/local()` materializes the plan
-- **Env file writer**: Atomic writes via temp file + rename, sets `0600` permissions, preserves comments and blank lines on update
+- **Backends**: Abstract base with `read()`, `write()`, `delete()`, `apply(updates, deletes)` interface. Secrets Manager stores all keys as a single JSON object (applied as one version, merged against the raw JSON so unmanaged keys/types are preserved); Parameter Store stores each key as an individual parameter under a path prefix (values validated before any write)
+- **Diff engine**: `compute_diff()` produces `DiffEntry` list, `build_sync_plan()` wraps with direction and prune semantics; `remote_changes()` yields only the added/changed keys and pruned deletes for push, `apply_plan_to_local()` builds the pulled `.env` state
+- **Env file writer**: Atomic writes via temp file + fsync + rename, sets `0600` permissions, preserves comments, blank lines and `export` prefixes; values are quoted to round-trip exactly and be inert when `source`d
+- **Safety**: output masks all values unless `--no-mask`; `--prune` refuses an empty source; an explicit `--config` must exist; AWS/config errors print one line, not a traceback
 
 ## Configuration
 

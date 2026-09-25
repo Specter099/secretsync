@@ -42,8 +42,11 @@ def load_config(config_path: str | Path | None = None) -> Config:
     cfg = Config()
 
     # --- Load from TOML file ---
+    # The default file is optional; an explicitly requested one must exist.
     path = Path(config_path or DEFAULT_CONFIG_FILE)
-    if path.exists():
+    if config_path is not None and not path.is_file():
+        raise FileNotFoundError(f"Config file not found: {str(path)!r}")
+    if path.is_file():
         _MAX_CONFIG_SIZE = 1_000_000  # 1 MB sanity limit
         if path.stat().st_size > _MAX_CONFIG_SIZE:
             raise ValueError(

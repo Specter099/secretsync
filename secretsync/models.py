@@ -9,15 +9,15 @@ from enum import StrEnum
 class DiffStatus(StrEnum):
     """Describes how a key differs between local and remote."""
 
-    ADDED = "added"        # exists locally, not in remote
-    REMOVED = "removed"    # exists in remote, not locally
-    CHANGED = "changed"    # exists in both, values differ
+    ADDED = "added"  # exists locally, not in remote
+    REMOVED = "removed"  # exists in remote, not locally
+    CHANGED = "changed"  # exists in both, values differ
     UNCHANGED = "unchanged"  # exists in both, values identical
 
 
 class SyncDirection(StrEnum):
-    PUSH = "push"   # local → remote
-    PULL = "pull"   # remote → local
+    PUSH = "push"  # local → remote
+    PULL = "pull"  # remote → local
 
 
 @dataclass

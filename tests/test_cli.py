@@ -74,7 +74,16 @@ class TestDiffCommand:
         with mock_aws():
             result = runner.invoke(
                 cli,
-                ["diff", "--env-file", str(env), "--config", str(toml_sm), "--format", "json"],
+                [
+                    "diff",
+                    "--env-file",
+                    str(env),
+                    "--config",
+                    str(toml_sm),
+                    "--format",
+                    "json",
+                    "--no-mask",
+                ],
             )
             assert result.exit_code == 0
             local = {e["key"]: e["local"] for e in json.loads(result.stdout)["entries"]}
@@ -156,8 +165,14 @@ class TestPushCommand:
             result = runner.invoke(
                 cli,
                 [
-                    "push", "--env-file", str(env_file), "--config", str(toml_sm),
-                    "--force", "--format", "json",
+                    "push",
+                    "--env-file",
+                    str(env_file),
+                    "--config",
+                    str(toml_sm),
+                    "--force",
+                    "--format",
+                    "json",
                 ],
             )
             assert result.exit_code == 0
@@ -197,6 +212,7 @@ class TestPullCommand:
             )
             assert result.exit_code == 0
             from secretsync.env_file import parse_env_file
+
             parsed = parse_env_file(env_file)
             assert parsed["DB_HOST"] == "remote-host"
             assert parsed["DB_PASS"] == "remote-pass"
@@ -262,3 +278,100 @@ class TestConfigValidation:
                 ["push", "--env-file", str(env_file), "--config", str(bad_cfg)],
             )
             assert result.exit_code != 0
+
+
+# ---------------------------------------------------------------------------
+# Safety guards and error handling
+# ---------------------------------------------------------------------------
+
+
+class TestSafety:
+    def test_output_masks_all_values_by_default(self, runner, tmp_path, toml_sm, env_file):
+        with mock_aws():
+            result = runner.invoke(
+                cli,
+                ["diff", "--env-file", str(env_file), "--config", str(toml_sm), "--format", "json"],
+            )
+            assert result.exit_code == 0
+            assert "localhost" not in result.stdout
+            assert "5432" not in result.stdout
+
+    def test_push_leaves_unchanged_keys_alone(self, runner, tmp_path, toml_sm, env_file):
+        with mock_aws():
+            client = boto3.client("secretsmanager", region_name=REGION)
+            client.create_secret(
+                Name="cli-test/app",
+                SecretString=json.dumps(
+                    {"DB_HOST": "localhost", "DB_PORT": 5432, "other-app.key": "keep"}
+                ),
+            )
+            result = runner.invoke(
+                cli,
+                ["push", "--env-file", str(env_file), "--config", str(toml_sm), "--force"],
+            )
+            assert result.exit_code == 0
+            stored = json.loads(client.get_secret_value(SecretId="cli-test/app")["SecretString"])
+            assert stored == {
+                "DB_HOST": "localhost",
+                "DB_PORT": 5432,
+                "other-app.key": "keep",
+                "DB_PASS": "secret123",
+            }
+
+    def test_pull_prune_refuses_empty_remote(self, runner, tmp_path, toml_sm, env_file):
+        with mock_aws():
+            result = runner.invoke(
+                cli,
+                [
+                    "pull",
+                    "--env-file",
+                    str(env_file),
+                    "--config",
+                    str(toml_sm),
+                    "--force",
+                    "--prune",
+                ],
+            )
+            assert result.exit_code != 0
+            assert "Refusing" in result.stderr
+            assert "DB_HOST=localhost" in env_file.read_text()
+
+    def test_push_prune_refuses_empty_env_file(self, runner, tmp_path, toml_sm):
+        env = tmp_path / ".env"
+        env.write_text("# nothing here\n")
+        with mock_aws():
+            client = boto3.client("secretsmanager", region_name=REGION)
+            client.create_secret(Name="cli-test/app", SecretString=json.dumps({"A": "1"}))
+            result = runner.invoke(
+                cli,
+                ["push", "--env-file", str(env), "--config", str(toml_sm), "--force", "--prune"],
+            )
+            assert result.exit_code != 0
+            stored = json.loads(client.get_secret_value(SecretId="cli-test/app")["SecretString"])
+            assert stored == {"A": "1"}
+
+    def test_explicit_missing_config_is_an_error(self, runner, tmp_path, env_file):
+        result = runner.invoke(
+            cli, ["diff", "--env-file", str(env_file), "--config", str(tmp_path / "nope.toml")]
+        )
+        assert result.exit_code == 1
+        assert "Config file not found" in result.stderr
+        assert "Traceback" not in result.output
+
+    def test_invalid_toml_is_a_clean_error(self, runner, tmp_path, env_file):
+        cfg = tmp_path / "bad.toml"
+        cfg.write_text("[backend\n")
+        result = runner.invoke(cli, ["diff", "--env-file", str(env_file), "--config", str(cfg)])
+        assert result.exit_code == 1
+        assert result.exception is None or isinstance(result.exception, SystemExit)
+        assert "Error:" in result.stderr
+
+    def test_aws_error_is_a_clean_error(self, runner, tmp_path, toml_sm, env_file):
+        with mock_aws():
+            client = boto3.client("secretsmanager", region_name=REGION)
+            client.create_secret(Name="cli-test/app", SecretString="not-json")
+            result = runner.invoke(
+                cli, ["diff", "--env-file", str(env_file), "--config", str(toml_sm)]
+            )
+            assert result.exit_code == 1
+            assert "valid JSON" in result.stderr

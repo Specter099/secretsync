@@ -32,15 +32,15 @@ def format_table(plan: SyncPlan, *, mask: bool = True) -> str:
         padding=(0, 1),
     )
 
-    table.add_column("", width=2, no_wrap=True)          # status symbol
+    table.add_column("", width=2, no_wrap=True)  # status symbol
     table.add_column("Key", style="bold", no_wrap=True)
     table.add_column("Local", no_wrap=False)
     table.add_column("Remote", no_wrap=False)
 
     for entry in plan.entries:
         symbol, style = _STATUS_STYLE[entry.status]
-        local_val = mask_value(entry.key, entry.local_value, mask)
-        remote_val = mask_value(entry.key, entry.remote_value, mask)
+        local_val = mask_value(entry.local_value, mask)
+        remote_val = mask_value(entry.remote_value, mask)
 
         table.add_row(
             Text(symbol, style=style),

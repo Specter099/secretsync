@@ -12,7 +12,8 @@ from .base import Backend, sanitize_keys
 
 logger = logging.getLogger(__name__)
 
-_MAX_BATCH = 10  # GetParameters allows at most 10 names per call
+_MAX_BATCH = 10  # DeleteParameters allows at most 10 names per call
+_MAX_VALUE_BYTES = 4096  # Standard-tier parameter value limit
 
 
 class ParameterStoreBackend(Backend):
@@ -52,12 +53,29 @@ class ParameterStoreBackend(Backend):
         for page in pages:
             for param in page.get("Parameters", []):
                 name: str = param["Name"]
-                key = name[len(self.path):]  # strip prefix
+                key = name[len(self.path) :]  # strip prefix
                 result[key] = param["Value"]
         return sanitize_keys(result)
 
     def write(self, updates: dict[str, str]) -> None:
-        """Put each key as a SecureString parameter."""
+        """Put each key as a SecureString parameter.
+
+        All values are validated first so an invalid one can't leave a
+        half-applied push behind.
+        """
+        problems = [
+            f"{key}: empty values are not allowed by Parameter Store"
+            for key, value in updates.items()
+            if not value
+        ] + [
+            f"{key}: value is {len(value.encode())} bytes (limit {_MAX_VALUE_BYTES})"
+            for key, value in updates.items()
+            if len(value.encode()) > _MAX_VALUE_BYTES
+        ]
+        if problems:
+            raise ValueError(
+                "Cannot write to Parameter Store; nothing was written:\n  " + "\n  ".join(problems)
+            )
         for key, value in updates.items():
             full_name = f"{self.path}{key}"
             try:

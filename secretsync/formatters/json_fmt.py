@@ -35,8 +35,8 @@ def format_json(plan: SyncPlan, *, mask: bool = True) -> str:
             {
                 "key": entry.key,
                 "status": entry.status.value,
-                "local": mask_value(entry.key, entry.local_value, mask),
-                "remote": mask_value(entry.key, entry.remote_value, mask),
+                "local": mask_value(entry.local_value, mask),
+                "remote": mask_value(entry.remote_value, mask),
             }
         )
 

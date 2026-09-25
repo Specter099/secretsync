@@ -2,14 +2,12 @@
 
 from __future__ import annotations
 
-import pytest
-
 from secretsync.differ import (
     apply_plan_to_local,
-    apply_plan_to_remote,
     build_sync_plan,
     compute_diff,
-    is_sensitive,
+    mask_value,
+    remote_changes,
 )
 from secretsync.models import DiffStatus, SyncDirection
 
@@ -73,62 +71,42 @@ def test_diff_empty_remote():
 
 
 # ---------------------------------------------------------------------------
-# is_sensitive
+# mask_value
 # ---------------------------------------------------------------------------
 
 
-@pytest.mark.parametrize("key", [
-    "DB_PASSWORD", "API_KEY", "SECRET_TOKEN", "PRIVATE_KEY",
-    "AWS_SECRET_ACCESS_KEY", "AUTH_TOKEN", "CERT_PEM",
-    "DATABASE_URL", "CONNECTION_STRING", "REDIS_DSN",
-])
-def test_is_sensitive_positive(key):
-    assert is_sensitive(key)
+def test_mask_value_masks_every_value_regardless_of_key():
+    assert mask_value("localhost", True) == "********"
+    assert mask_value("ab", True) == "**"
 
 
-@pytest.mark.parametrize("key", [
-    "DB_HOST", "APP_PORT", "LOG_LEVEL", "FEATURE_FLAG",
-    "CACHE_KEY_PREFIX", "KEYBOARD_LAYOUT",
-])
-def test_is_sensitive_negative(key):
-    assert not is_sensitive(key)
+def test_mask_value_passthrough_when_disabled():
+    assert mask_value("localhost", False) == "localhost"
+    assert mask_value(None, True) is None
 
 
 # ---------------------------------------------------------------------------
-# apply_plan_to_remote (push semantics)
+# remote_changes (push semantics)
 # ---------------------------------------------------------------------------
 
 
-def test_push_adds_new_local_keys():
-    local = {"A": "1", "NEW": "x"}
-    remote = {"A": "1"}
+def test_push_writes_only_added_and_changed_keys():
+    local = {"SAME": "1", "NEW": "x", "CHG": "new"}
+    remote = {"SAME": "1", "CHG": "old"}
     plan = build_sync_plan(local, remote, SyncDirection.PUSH)
-    result = apply_plan_to_remote(plan)
-    assert result["NEW"] == "x"
-
-
-def test_push_updates_changed_keys():
-    local = {"A": "new"}
-    remote = {"A": "old"}
-    plan = build_sync_plan(local, remote, SyncDirection.PUSH)
-    result = apply_plan_to_remote(plan)
-    assert result["A"] == "new"
+    updates, deletes = remote_changes(plan)
+    assert updates == {"NEW": "x", "CHG": "new"}
+    assert deletes == []
 
 
 def test_push_keeps_remote_only_keys_without_prune():
-    local = {"A": "1"}
-    remote = {"A": "1", "REMOTE_ONLY": "y"}
-    plan = build_sync_plan(local, remote, SyncDirection.PUSH, prune=False)
-    result = apply_plan_to_remote(plan)
-    assert "REMOTE_ONLY" in result
+    plan = build_sync_plan({"A": "1"}, {"A": "1", "R": "y"}, SyncDirection.PUSH, prune=False)
+    assert remote_changes(plan) == ({}, [])
 
 
-def test_push_prune_removes_remote_only_keys():
-    local = {"A": "1"}
-    remote = {"A": "1", "REMOTE_ONLY": "y"}
-    plan = build_sync_plan(local, remote, SyncDirection.PUSH, prune=True)
-    result = apply_plan_to_remote(plan)
-    assert "REMOTE_ONLY" not in result
+def test_push_prune_deletes_remote_only_keys():
+    plan = build_sync_plan({"A": "1"}, {"A": "1", "R": "y"}, SyncDirection.PUSH, prune=True)
+    assert remote_changes(plan) == ({}, ["R"])
 
 
 # ---------------------------------------------------------------------------

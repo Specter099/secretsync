@@ -56,21 +56,12 @@ class Backend(ABC):
             keys: List of key names to delete.
         """
 
-    def write_all(self, data: dict[str, str], *, prune: bool = False) -> None:
-        """Convenience: write *data*, optionally pruning stale keys.
+    def apply(self, updates: dict[str, str], deletes: list[str]) -> None:
+        """Write *updates* and remove *deletes*; keys in neither are left untouched.
 
-        Args:
-            data: The full desired state (key→value).
-            prune: When True, delete any remote keys absent from *data*.
+        Backends that can do both in one remote call should override this.
         """
-        # Compute stale keys BEFORE writing to avoid TOCTOU race where
-        # keys added by another process between write() and read() would
-        # be incorrectly deleted.
-        stale: list[str] = []
-        if prune:
-            current = self.read()
-            stale = [k for k in current if k not in data]
-        if data:
-            self.write(data)
-        if stale:
-            self.delete(stale)
+        if updates:
+            self.write(updates)
+        if deletes:
+            self.delete(deletes)
