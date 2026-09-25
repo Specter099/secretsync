@@ -6,6 +6,26 @@
 
 ---
 
+## Status (updated 2026-09-25)
+
+This report describes v0.1.0 as audited on 2026-02-25. Current state of each finding:
+
+| ID | Status |
+|----|--------|
+| H1 | Fixed — `.env` written atomically with `0600` (now also `fsync`ed before rename). |
+| H2 | Fixed — remote keys filtered by `sanitize_keys()`. Values are now also quoted so a pulled `.env` is inert when sourced. |
+| H3 | Won't fix — inherent to Python strings. |
+| H4 | Fixed — `--no-mask` prints a warning; all values are now masked by default. |
+| H5 | Fixed — `write_all()` removed; push deletes only the keys shown in the diff, via `Backend.apply()`. |
+| M1 | Mitigated — warning on `..` in `--env-file`. |
+| M2 | Fixed — 1 MB config size limit. |
+| M3 | Accepted — by design; Parameter Store backend available for per-key isolation. |
+| M4 | Fixed — `verify=True` on boto3 clients. |
+| L1 | Fixed (atomic write); no backup file is kept, to avoid a second plaintext copy. |
+| L2 | Fixed — dummy credentials documented in CI. |
+| L3 | Superseded — the heuristic was removed; masking now applies to every value. |
+| L4 | Fixed — adaptive retries (3 attempts). |
+
 ## Executive Summary
 
 `secretsync` is a CLI tool that bidirectionally syncs `.env` files with AWS Secrets Manager and SSM Parameter Store. The codebase is compact (~700 LOC of application code) and generally well-structured. However, this audit identified **5 high-severity**, **4 medium-severity**, and **4 low-severity** findings that should be addressed before production use.

@@ -58,18 +58,34 @@ class TestSecretsManagerBackend:
         sm_backend.delete(["NONEXISTENT"])
         assert sm_backend.read() == {"A": "1"}
 
-    def test_write_all_no_prune(self, sm_backend):
+    def test_apply_updates_only(self, sm_backend):
         sm_backend.write({"A": "1", "B": "2"})
-        sm_backend.write_all({"A": "99"}, prune=False)
-        result = sm_backend.read()
-        assert result["A"] == "99"
-        assert result["B"] == "2"
+        sm_backend.apply({"A": "99"}, [])
+        assert sm_backend.read() == {"A": "99", "B": "2"}
 
-    def test_write_all_with_prune(self, sm_backend):
+    def test_apply_updates_and_deletes_in_one_version(self, sm_backend):
         sm_backend.write({"A": "1", "B": "2"})
-        sm_backend.write_all({"A": "99"}, prune=True)
-        result = sm_backend.read()
-        assert result == {"A": "99"}
+        client = boto3.client("secretsmanager", region_name=REGION)
+        before = len(client.list_secret_version_ids(SecretId="myapp/test")["Versions"])
+        sm_backend.apply({"A": "99"}, ["B"])
+        after = len(client.list_secret_version_ids(SecretId="myapp/test")["Versions"])
+        assert sm_backend.read() == {"A": "99"}
+        assert after == before + 1
+
+    def test_write_preserves_unmanaged_keys_and_types(self, sm_backend):
+        client = boto3.client("secretsmanager", region_name=REGION)
+        client.create_secret(
+            Name="myapp/test",
+            SecretString=json.dumps({"my-key": "v", "flag": True, "n": None, "A": "1"}),
+        )
+        sm_backend.write({"A": "2"})
+        stored = json.loads(client.get_secret_value(SecretId="myapp/test")["SecretString"])
+        assert stored == {"my-key": "v", "flag": True, "n": None, "A": "2"}
+
+    def test_oversized_secret_rejected_before_write(self, sm_backend):
+        with pytest.raises(ValueError, match="limit"):
+            sm_backend.write({"BIG": "x" * 70_000})
+        assert sm_backend.read() == {}
 
     def test_invalid_json_secret_raises(self):
         with mock_aws():
@@ -97,6 +113,13 @@ class TestSecretsManagerBackend:
         result = sm_backend.read()
         assert result["PORT"] == "5432"
         assert isinstance(result["PORT"], str)
+
+    def test_non_string_values_rendered_as_json(self, sm_backend):
+        client = boto3.client("secretsmanager", region_name=REGION)
+        client.create_secret(
+            Name="myapp/test", SecretString=json.dumps({"FLAG": True, "NOTHING": None})
+        )
+        assert sm_backend.read() == {"FLAG": "true", "NOTHING": "null"}
 
 
 # ---------------------------------------------------------------------------
@@ -138,17 +161,21 @@ class TestParameterStoreBackend:
             b2 = ParameterStoreBackend(path="/app/prod/", region=REGION)
             assert b1.path == b2.path == "/app/prod/"
 
-    def test_write_all_with_prune(self, ps_backend):
+    def test_apply_with_deletes(self, ps_backend):
         ps_backend.write({"A": "1", "B": "2"})
-        ps_backend.write_all({"A": "99"}, prune=True)
-        result = ps_backend.read()
-        assert result == {"A": "99"}
+        ps_backend.apply({"A": "99"}, ["B"])
+        assert ps_backend.read() == {"A": "99"}
 
-    def test_write_all_no_prune_keeps_extra(self, ps_backend):
+    def test_apply_without_deletes_keeps_extra(self, ps_backend):
         ps_backend.write({"A": "1", "B": "2"})
-        ps_backend.write_all({"A": "99"}, prune=False)
-        result = ps_backend.read()
-        assert result["B"] == "2"
+        ps_backend.apply({"A": "99"}, [])
+        assert ps_backend.read() == {"A": "99", "B": "2"}
+
+    @pytest.mark.parametrize("bad", ["", "x" * 4097])
+    def test_invalid_value_rejected_before_any_write(self, ps_backend, bad):
+        with pytest.raises(ValueError, match="nothing was written"):
+            ps_backend.write({"A_GOOD": "ok", "B_BAD": bad})
+        assert ps_backend.read() == {}
 
     def test_keys_are_stripped_of_path_prefix(self, ps_backend):
         ps_backend.write({"MY_KEY": "value"})

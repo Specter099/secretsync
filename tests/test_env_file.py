@@ -5,6 +5,8 @@ from __future__ import annotations
 import os
 import stat
 
+import pytest
+
 from secretsync.env_file import parse_env_file, write_env_file
 
 # ---------------------------------------------------------------------------
@@ -75,7 +77,7 @@ def test_parse_empty_quoted_value(tmp_path):
 
 def test_parse_value_with_equals(tmp_path):
     f = tmp_path / ".env"
-    f.write_text('TOKEN=abc=def==\n')
+    f.write_text("TOKEN=abc=def==\n")
     assert parse_env_file(f) == {"TOKEN": "abc=def=="}
 
 
@@ -160,7 +162,7 @@ def test_write_value_with_spaces_gets_quoted(tmp_path):
     f = tmp_path / ".env"
     write_env_file(f, {"MSG": "hello world"})
     content = f.read_text()
-    assert '"hello world"' in content
+    assert "MSG='hello world'" in content
     # And must round-trip correctly
     assert parse_env_file(f)["MSG"] == "hello world"
 
@@ -175,6 +177,56 @@ def test_write_round_trip(tmp_path):
     f = tmp_path / ".env"
     write_env_file(f, original)
     assert parse_env_file(f) == original
+
+
+TRICKY_VALUES = {
+    "BACKSLASH": "C:\\path\\new",
+    "DQUOTE": 'he said "hi"',
+    "SQUOTE": "it's",
+    "BOTH": """it's "x" $HOME""",
+    "NEWLINE": "line1\nline2",
+    "TAB": "a\tb",
+    "HASH": "a #b",
+    "SUBST": "$(touch pwned)",
+    "BACKTICK": "`touch pwned`",
+    "SEMI": "x;touch pwned",
+    "PIPE": "a|touch pwned",
+    "AMP": "a&&touch pwned",
+    "LEADING_SPACE": "  padded ",
+}
+
+
+def test_write_round_trip_tricky_values_is_stable(tmp_path):
+    f = tmp_path / ".env"
+    write_env_file(f, TRICKY_VALUES)
+    assert parse_env_file(f) == TRICKY_VALUES
+    # A second pull of the same values must not change the file.
+    first = f.read_text()
+    write_env_file(f, parse_env_file(f))
+    assert f.read_text() == first
+
+
+def test_written_file_is_inert_when_sourced(tmp_path):
+    import shutil
+    import subprocess
+
+    sh = shutil.which("sh")
+    if sh is None:
+        pytest.skip("no POSIX shell")
+    f = tmp_path / ".env"
+    values = {k: v for k, v in TRICKY_VALUES.items() if "\n" not in v and "\t" not in v}
+    write_env_file(f, values)
+    script = f"set -a; . {f}; " + "; ".join(f'printf "%s\\0" "${k}"' for k in values)
+    out = subprocess.run([sh, "-c", script], cwd=tmp_path, capture_output=True, check=True)
+    assert out.stdout.decode().split("\0")[:-1] == list(values.values())
+    assert not (tmp_path / "pwned").exists()
+
+
+def test_write_preserves_export_prefix(tmp_path):
+    f = tmp_path / ".env"
+    f.write_text("export A=1\nB=2\n")
+    write_env_file(f, {"A": "10", "B": "20"})
+    assert f.read_text() == "export A=10\nB=20\n"
 
 
 # ---------------------------------------------------------------------------

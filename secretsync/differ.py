@@ -4,33 +4,12 @@ from __future__ import annotations
 
 from .models import DiffEntry, DiffStatus, SyncDirection, SyncPlan
 
-# Keys that should always be masked in output (case-insensitive substring match).
-# Ordered from most specific to least specific to avoid false positives.
-_SENSITIVE_FRAGMENTS = (
-    "password",
-    "passwd",
-    "pass",
-    "secret",
-    "token",
-    "api_key",
-    "apikey",
-    "private_key",
-    "secret_key",
-    "access_key",
-    "auth",
-    "credential",
-    "private",
-    "cert",
-    "connection_string",
-    "database_url",
-    "dsn",
-)
 
-
-def is_sensitive(key: str) -> bool:
-    """Heuristically decide whether *key* looks like a sensitive variable."""
-    lower = key.lower()
-    return any(frag in lower for frag in _SENSITIVE_FRAGMENTS)
+def mask_value(value: str | None, mask: bool) -> str | None:
+    """Return *value* replaced by up to 8 ``*`` when *mask* is on."""
+    if value is not None and mask:
+        return "*" * min(len(value), 8)
+    return value
 
 
 def compute_diff(
@@ -97,7 +76,6 @@ def build_sync_plan(
     remote: dict[str, str],
     direction: SyncDirection,
     *,
-    env_file: str = ".env",
     backend_type: str = "secrets_manager",
     dry_run: bool = False,
     prune: bool = False,
@@ -107,7 +85,6 @@ def build_sync_plan(
     return SyncPlan(
         direction=direction,
         entries=entries,
-        env_file=env_file,
         backend_type=backend_type,
         dry_run=dry_run,
         prune=prune,
@@ -141,34 +118,17 @@ def apply_plan_to_local(plan: SyncPlan) -> dict[str, str]:
     return result
 
 
-def apply_plan_to_remote(plan: SyncPlan) -> dict[str, str]:
-    """Compute the target remote state after applying a PUSH plan.
+def remote_changes(plan: SyncPlan) -> tuple[dict[str, str], list[str]]:
+    """Return the ``(updates, deletes)`` a PUSH plan needs on the remote.
 
-    Returns the new key→value dict to write to the backend.
+    Only added/changed keys are written; unchanged keys are never rewritten.
+    Remote-only keys are deleted only when the plan prunes.
     """
     assert plan.direction == SyncDirection.PUSH
-    result: dict[str, str] = {}
-
-    for entry in plan.entries:
-        if entry.status == DiffStatus.ADDED:
-            # key is only in local → push it
-            result[entry.key] = entry.local_value or ""
-        elif entry.status == DiffStatus.REMOVED:
-            # key is only in remote
-            if not plan.prune:
-                result[entry.key] = entry.remote_value or ""
-            # else: prune → drop it (caller deletes via backend.write_all)
-        elif entry.status == DiffStatus.CHANGED:
-            # local wins on push
-            result[entry.key] = entry.local_value or ""
-        else:
-            # UNCHANGED — keep remote value
-            result[entry.key] = entry.remote_value or ""
-
-    # Remove pruned keys from result
-    if plan.prune:
-        for entry in plan.entries:
-            if entry.status == DiffStatus.REMOVED:
-                result.pop(entry.key, None)
-
-    return result
+    updates = {
+        e.key: e.local_value or ""
+        for e in plan.entries
+        if e.status in (DiffStatus.ADDED, DiffStatus.CHANGED)
+    }
+    deletes = [e.key for e in plan.entries if e.status == DiffStatus.REMOVED] if plan.prune else []
+    return updates, deletes

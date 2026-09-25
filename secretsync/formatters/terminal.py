@@ -8,7 +8,7 @@ from rich.console import Console
 from rich.table import Table
 from rich.text import Text
 
-from ..differ import is_sensitive
+from ..differ import mask_value
 from ..models import DiffStatus, SyncPlan
 
 # Status → (symbol, Rich style)
@@ -18,14 +18,6 @@ _STATUS_STYLE: dict[DiffStatus, tuple[str, str]] = {
     DiffStatus.CHANGED: ("~", "bold yellow"),
     DiffStatus.UNCHANGED: ("=", "dim"),
 }
-
-
-def _mask(value: str | None, key: str, mask_sensitive: bool) -> str:
-    if value is None:
-        return ""
-    if mask_sensitive and is_sensitive(key):
-        return "*" * min(len(value), 8)
-    return value
 
 
 def format_table(plan: SyncPlan, *, mask: bool = True) -> str:
@@ -40,15 +32,15 @@ def format_table(plan: SyncPlan, *, mask: bool = True) -> str:
         padding=(0, 1),
     )
 
-    table.add_column("", width=2, no_wrap=True)          # status symbol
+    table.add_column("", width=2, no_wrap=True)  # status symbol
     table.add_column("Key", style="bold", no_wrap=True)
     table.add_column("Local", no_wrap=False)
     table.add_column("Remote", no_wrap=False)
 
     for entry in plan.entries:
         symbol, style = _STATUS_STYLE[entry.status]
-        local_val = _mask(entry.local_value, entry.key, mask)
-        remote_val = _mask(entry.remote_value, entry.key, mask)
+        local_val = mask_value(entry.local_value, mask)
+        remote_val = mask_value(entry.remote_value, mask)
 
         table.add_row(
             Text(symbol, style=style),
@@ -58,7 +50,7 @@ def format_table(plan: SyncPlan, *, mask: bool = True) -> str:
         )
 
     buf = StringIO()
-    console = Console(file=buf, highlight=False, no_color=False)
+    console = Console(file=buf, highlight=False)
     console.print(table)
 
     # Summary line

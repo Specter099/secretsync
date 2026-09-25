@@ -4,16 +4,8 @@ from __future__ import annotations
 
 import json
 
-from ..differ import is_sensitive
+from ..differ import mask_value
 from ..models import DiffStatus, SyncPlan
-
-
-def _mask(value: str | None, key: str, mask_sensitive: bool) -> str | None:
-    if value is None:
-        return None
-    if mask_sensitive and is_sensitive(key):
-        return "*" * min(len(value), 8)
-    return value
 
 
 def format_json(plan: SyncPlan, *, mask: bool = True) -> str:
@@ -43,8 +35,8 @@ def format_json(plan: SyncPlan, *, mask: bool = True) -> str:
             {
                 "key": entry.key,
                 "status": entry.status.value,
-                "local": _mask(entry.local_value, entry.key, mask),
-                "remote": _mask(entry.remote_value, entry.key, mask),
+                "local": mask_value(entry.local_value, mask),
+                "remote": mask_value(entry.remote_value, mask),
             }
         )
 

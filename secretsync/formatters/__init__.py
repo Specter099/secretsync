@@ -15,7 +15,7 @@ def render_plan(plan: SyncPlan, fmt: str = "table", mask: bool = True) -> str:
     Args:
         plan: The sync plan to render.
         fmt: ``"table"`` for Rich terminal output, ``"json"`` for JSON.
-        mask: When True, mask sensitive values.
+        mask: When True, mask all values.
 
     Returns:
         A string representation of the plan (may contain ANSI codes for table).

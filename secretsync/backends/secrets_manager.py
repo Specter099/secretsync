@@ -13,6 +13,8 @@ from .base import Backend, sanitize_keys
 
 logger = logging.getLogger(__name__)
 
+_MAX_SECRET_BYTES = 65_536  # SecretString size limit
+
 
 class SecretsManagerBackend(Backend):
     """Stores all key/value pairs as a JSON object in a single AWS secret.
@@ -39,7 +41,42 @@ class SecretsManagerBackend(Backend):
     # ------------------------------------------------------------------
 
     def read(self) -> dict[str, str]:
-        """Fetch the secret and parse it as JSON."""
+        """Fetch the secret as env vars: invalid keys dropped, values as strings.
+
+        Non-string JSON values are rendered as JSON (``true``, ``null``, ``5432``).
+        """
+        data = self._read_raw()
+        return sanitize_keys(
+            {k: v if isinstance(v, str) else json.dumps(v) for k, v in data.items()}
+        )
+
+    def write(self, updates: dict[str, str]) -> None:
+        """Merge *updates* into the existing secret (creates if absent)."""
+        self.apply(updates, [])
+
+    def delete(self, keys: list[str]) -> None:
+        """Remove *keys* from the JSON blob."""
+        self.apply({}, keys)
+
+    def apply(self, updates: dict[str, str], deletes: list[str]) -> None:
+        """Apply updates and deletes in a single secret version.
+
+        Merges against the raw stored JSON so keys secretsync doesn't manage
+        (non env-var names, non-string values) are preserved untouched.
+        """
+        if not updates and not deletes:
+            return
+        data = self._read_raw()
+        data.update(updates)
+        for key in deletes:
+            data.pop(key, None)
+        self._put_secret(data)
+
+    # ------------------------------------------------------------------
+    # Helpers
+    # ------------------------------------------------------------------
+
+    def _read_raw(self) -> dict:
         try:
             response = self._client.get_secret_value(SecretId=self.secret_name)
         except ClientError as exc:
@@ -64,26 +101,16 @@ class SecretsManagerBackend(Backend):
                 f"got {type(data).__name__}."
             )
 
-        return sanitize_keys({k: str(v) for k, v in data.items()})
+        return data
 
-    def write(self, updates: dict[str, str]) -> None:
-        """Merge *updates* into the existing secret (creates if absent)."""
-        current = self.read()
-        merged = {**current, **updates}
-        self._put_secret(merged)
-
-    def delete(self, keys: list[str]) -> None:
-        """Remove *keys* from the JSON blob."""
-        current = self.read()
-        pruned = {k: v for k, v in current.items() if k not in keys}
-        self._put_secret(pruned)
-
-    # ------------------------------------------------------------------
-    # Helpers
-    # ------------------------------------------------------------------
-
-    def _put_secret(self, data: dict[str, str]) -> None:
+    def _put_secret(self, data: dict) -> None:
         secret_string = json.dumps(data, indent=None, ensure_ascii=False)
+        size = len(secret_string.encode("utf-8"))
+        if size > _MAX_SECRET_BYTES:
+            raise ValueError(
+                f"Secret '{self.secret_name}' would be {size} bytes, over the "
+                f"{_MAX_SECRET_BYTES}-byte Secrets Manager limit. Nothing was written."
+            )
         try:
             self._client.put_secret_value(
                 SecretId=self.secret_name,
